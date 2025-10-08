@@ -1,10 +1,11 @@
-use clap::crate_version;
 use devenv::{
     cli::{Cli, Commands, ContainerCommand, InputsCommand, ProcessesCommand, TasksCommand},
-    config, log, nix_backend, Devenv,
+    config,
+    devenv::ProcessOptions,
+    log, nix_backend, Devenv,
 };
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
-use std::{collections::HashMap, env, os::unix::process::CommandExt, process::Command, sync::Arc};
+use std::{os::unix::process::CommandExt, process::Command, sync::Arc};
 use tempfile::TempDir;
 use tokio::sync::OnceCell;
 use tracing::{info, warn};
@@ -13,24 +14,10 @@ use tracing::{info, warn};
 async fn main() -> Result<()> {
     let cli = Cli::parse_and_resolve_options();
 
-    let print_version = || {
-        println!(
-            "devenv {} ({})",
-            crate_version!(),
-            cli.global_options.system
-        );
-        Ok(())
-    };
-
     if cli.command.is_none() && cli.profile.is_empty() {
         let mut cmd = <Cli as clap::CommandFactory>::command();
         cmd.print_help().into_diagnostic()?;
         return Ok(());
-    }
-
-    let command_is_version = matches!(cli.command, Some(Commands::Version));
-    if command_is_version || cli.global_options.version {
-        return print_version();
     }
 
     if let Some(Commands::Direnvrc) = cli.command {
@@ -66,15 +53,14 @@ async fn main() -> Result<()> {
         .wrap_err("Failed to get current directory")?;
     let devenv_dotfile = devenv_root.join(".devenv");
 
-    let xdg_dirs = xdg::BaseDirectories::with_prefix("devenv")
-        .into_diagnostic()
-        .wrap_err("Failed to get xdg dirs")?;
-    let cachix_trusted_keys = xdg_dirs.get_data_home().join("cachix_trusted_keys.json");
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("devenv");
+
+    let cachix_trusted_keys = xdg_dirs.get_data_home().expect("Failed to get XDG data home").join("cachix_trusted_keys.json");
     let paths = nix_backend::DevenvPaths {
         root: devenv_root.clone(),
         dotfile: devenv_dotfile.clone(),
         dot_gc: devenv_dotfile.join("gc"),
-        home_gc: xdg_dirs.get_data_home().join("gc"),
+        home_gc: xdg_dirs.get_data_home().expect("Failed to get XDG data home").join("gc"),
         cachix_trusted_keys,
     };
     let secretspec_resolved = Arc::new(OnceCell::new());
@@ -241,7 +227,7 @@ async fn main() -> Result<()> {
             | Commands::Processes {
                 command: ProcessesCommand::Up { processes, detach },
             } => {
-                let options = devenv::ProcessOptions {
+                let options = ProcessOptions {
                     detach,
                     log_to_file: detach,
                     ..Default::default()
@@ -270,11 +256,9 @@ async fn main() -> Result<()> {
             }
             Commands::Mcp {} => {
                 let config = devenv.config.read().await.clone();
-                let mcp_nix = nix.clone();
-                devenv::mcp::run_mcp_server(config, mcp_nix).await
+                devenv::mcp::run_mcp_server(config, devenv.nix.clone()).await
             }
             Commands::Direnvrc => unreachable!(),
-            Commands::Version => unreachable!(),
         },
         None => {
             if devenv.profiles.contains(&"ci".to_string()) {

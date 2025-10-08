@@ -66,9 +66,13 @@ snix-build = { workspace = true, optional = true }
 nix-compat = { workspace = true, optional = true }
 nix-compat-derive = { workspace = true, optional = true }
 
+# Test dependencies made optional for feature gating
+assert_cmd = { version = "2.0", optional = true }
+predicates = { version = "3.0", optional = true }
+
 [features]
 default = []
-integration-tests = []
+integration-tests = ["dep:assert_cmd", "dep:predicates"]
 snix = [
   "dep:nix-compat",
   "dep:nix-compat-derive",
@@ -78,3 +82,8 @@ snix = [
   "dep:snix-glue",
   "dep:snix-store",
 ]
+
+[[test]]
+name = "cli_profile_tests"
+path = "../tests/integration/cli_profile_tests.rs"
+required-features = ["integration-tests"]

@@ -6,18 +6,20 @@ use crate::nix_backend;
 use miette::Result;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{ServerCapabilities, ServerInfo};
-use rmcp::{ServerHandler, ServiceExt, tool, tool_router};
+use rmcp::{tool, tool_router, ServerHandler, ServiceExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{OnceCell, RwLock};
 use tracing::{info, warn};
 
 #[derive(Clone)]
 struct DevenvMcpServer {
     config: Config,
+    nix: Arc<Box<dyn nix_backend::NixBackend>>,
+    secretspec_resolved: Arc<OnceCell<secretspec::Resolved<HashMap<String, String>>>>,
     cache: Arc<RwLock<McpCache>>,
     devenv_root: Option<PathBuf>,
 }
@@ -29,13 +31,24 @@ struct McpCache {
 }
 
 impl DevenvMcpServer {
-    fn new(config: Config) -> Self {
-        Self::new_with_root(config, None)
+    fn new(
+        config: Config,
+        nix: Arc<Box<dyn nix_backend::NixBackend>>,
+        secretspec_resolved: Arc<OnceCell<secretspec::Resolved<HashMap<String, String>>>>,
+    ) -> Self {
+        Self::new_with_root(config, nix, secretspec_resolved, None)
     }
 
-    fn new_with_root(config: Config, devenv_root: Option<PathBuf>) -> Self {
+    fn new_with_root(
+        config: Config,
+        nix: Arc<Box<dyn nix_backend::NixBackend>>,
+        secretspec_resolved: Arc<OnceCell<secretspec::Resolved<HashMap<String, String>>>>,
+        devenv_root: Option<PathBuf>,
+    ) -> Self {
         Self {
             config,
+            nix,
+            secretspec_resolved,
             cache: Arc::new(RwLock::new(McpCache::default())),
             devenv_root,
         }
@@ -81,7 +94,12 @@ impl DevenvMcpServer {
             devenv_root: self.devenv_root.clone(),
             ..Default::default()
         };
-        let devenv = Devenv::new(devenv_options).await;
+        let devenv = Devenv::new(
+            devenv_options,
+            self.nix.clone(),
+            self.secretspec_resolved.clone(),
+        )
+        .await;
 
         // Assemble the devenv to create required flake files
         devenv.assemble(true).await?;
@@ -135,7 +153,12 @@ impl DevenvMcpServer {
             devenv_root: self.devenv_root.clone(),
             ..Default::default()
         };
-        let devenv = Devenv::new(devenv_options).await;
+        let devenv = Devenv::new(
+            devenv_options,
+            self.nix.clone(),
+            self.secretspec_resolved.clone(),
+        )
+        .await;
 
         // Assemble the devenv to create required flake files
         devenv.assemble(true).await?;
@@ -336,10 +359,14 @@ impl DevenvMcpServer {
     }
 }
 
-pub async fn run_mcp_server(config: Config) -> Result<()> {
+pub async fn run_mcp_server(
+    config: Config,
+    nix: Arc<Box<dyn nix_backend::NixBackend>>,
+) -> Result<()> {
     info!("Starting devenv MCP server");
 
-    let server = DevenvMcpServer::new(config);
+    let secretspec_resolved = Arc::new(OnceCell::new());
+    let server = DevenvMcpServer::new(config, nix, secretspec_resolved);
 
     // Initialize cache before starting the server
     server.initialize().await?;

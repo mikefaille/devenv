@@ -29,10 +29,6 @@ pub struct Cli {
     )]
     pub profile: Vec<String>,
 
-    // Add explicit help flag to control processing order
-    #[arg(long, short = 'h', action = ArgAction::Help, global = true)]
-    help: Option<bool>,
-
     #[command(flatten)]
     pub global_options: GlobalOptions,
 }
@@ -67,15 +63,6 @@ impl Cli {
 
 #[derive(Clone, Debug, Parser)]
 pub struct GlobalOptions {
-    #[arg(
-        short = 'V',
-        long,
-        global = true,
-        help = "Print version information",
-        long_help = "Print version information and exit"
-    )]
-    pub version: bool,
-
     #[arg(short, long, global = true, help = "Enable additional debug logs.")]
     pub verbose: bool,
 
@@ -209,7 +196,6 @@ pub struct GlobalOptions {
 impl Default for GlobalOptions {
     fn default() -> Self {
         Self {
-            version: false,
             verbose: false,
             quiet: false,
             log_format: LogFormat::default(),
@@ -240,7 +226,7 @@ impl GlobalOptions {
     }
 }
 
-#[derive(Subcommand, Clone)]
+#[derive(Subcommand, Clone, Debug)]
 pub enum Commands {
     #[command(about = "Scaffold devenv.yaml, devenv.nix, .gitignore and .envrc.")]
     Init { target: Option<PathBuf> },
@@ -357,9 +343,6 @@ pub enum Commands {
     )]
     Direnvrc,
 
-    #[command(about = "Print the version of devenv.")]
-    Version,
-
     #[clap(hide = true)]
     Assemble,
 
@@ -376,7 +359,7 @@ pub enum Commands {
     Mcp {},
 }
 
-#[derive(Subcommand, Clone)]
+#[derive(Subcommand, Clone, Debug)]
 #[clap(about = "Start or stop processes. https://devenv.sh/processes/")]
 pub enum ProcessesCommand {
     #[command(alias = "start", about = "Start processes in the foreground.")]
@@ -392,7 +375,7 @@ pub enum ProcessesCommand {
     // TODO: Status/Attach
 }
 
-#[derive(Subcommand, Clone)]
+#[derive(Subcommand, Clone, Debug)]
 #[clap(about = "Run tasks. https://devenv.sh/tasks/")]
 pub enum TasksCommand {
     #[command(about = "Run tasks.")]
@@ -412,7 +395,7 @@ pub enum TasksCommand {
     List {},
 }
 
-#[derive(Subcommand, Clone)]
+#[derive(Subcommand, Clone, Debug)]
 #[clap(
     about = "Build, copy, or run a container. https://devenv.sh/containers/",
     arg_required_else_help(true)
@@ -428,7 +411,7 @@ pub enum ContainerCommand {
     Run { name: String },
 }
 
-#[derive(Subcommand, Clone)]
+#[derive(Subcommand, Clone, Debug)]
 #[clap(about = "Add an input to devenv.yaml. https://devenv.sh/inputs/")]
 pub enum InputsCommand {
     #[command(about = "Add an input to devenv.yaml.")]

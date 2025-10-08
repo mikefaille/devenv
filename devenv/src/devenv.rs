@@ -1,11 +1,12 @@
-use super::{cli, config, log::HumanReadableDuration, nix_backend, tasks, util};
+use super::{cli, config, log::HumanReadableDuration, nix_backend, util};
+use devenv_tasks as tasks;
 use ::nix::sys::signal;
 use ::nix::unistd::Pid;
 use clap::crate_version;
 use cli_table::Table;
-use cli_table::{WithTitle, print_stderr};
-use include_dir::{Dir, include_dir};
-use miette::{IntoDiagnostic, Result, WrapErr, bail, miette};
+use cli_table::{print_stderr, WithTitle};
+use include_dir::{include_dir, Dir};
+use miette::{bail, miette, IntoDiagnostic, Result, WrapErr};
 use once_cell::sync::Lazy;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
@@ -18,14 +19,14 @@ use std::os::unix::{fs::PermissionsExt, process::CommandExt};
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use tokio::fs::{self, File};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process;
 use tokio::sync::{OnceCell, RwLock, Semaphore};
-use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 // templates
 const FLAKE_TMPL: &str = include_str!("flake.tmpl.nix");
@@ -95,9 +96,7 @@ impl Devenv {
         secretspec_resolved: Arc<OnceCell<secretspec::Resolved<HashMap<String, String>>>>,
     ) -> Self {
         let xdg_dirs = xdg::BaseDirectories::with_prefix("devenv");
-        let devenv_home = xdg_dirs
-            .get_data_home()
-            .expect("Failed to get home directory");
+        let devenv_home = xdg_dirs.get_data_home().expect("Failed to get home directory");
         let devenv_home_gc = devenv_home.join("gc");
 
         let devenv_root = options
@@ -1830,8 +1829,8 @@ fn print_task_tree_with_namespace(
         let is_last_child = i == children.len() - 1;
         print_task_tree_with_namespace(
             child,
-            task_dependents,
-            task_configs,
+            &task_dependents,
+            &task_configs,
             visited,
             &new_prefix,
             is_last_child,
@@ -1893,8 +1892,8 @@ fn print_task_tree(
         let is_last_child = i == children.len() - 1;
         print_task_tree(
             child,
-            task_dependents,
-            task_configs,
+            &task_dependents,
+            &task_configs,
             visited,
             &new_prefix,
             is_last_child,

@@ -13,3 +13,4 @@ miette.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
+xdg = { version = "3.0.0" }

@@ -1,6 +1,6 @@
 use clap::{Parser, crate_version};
 use devenv::{
-    default_system,
+    cli,
     log::{self, LogFormat},
 };
 use miette::{IntoDiagnostic, Result, bail};
@@ -40,7 +40,7 @@ struct Cli {
     )]
     pub version: bool,
 
-    #[arg(short, long, global = true, default_value_t = default_system())]
+    #[arg(short, long, global = true, default_value_t = cli::default_system())]
     pub system: String,
 
     #[arg(short, long, global = true, help = "Enable additional debug logs.")]

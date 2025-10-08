@@ -203,4 +203,10 @@ impl NixBackend for SnixBackend {
         // Snix doesn't use external nix commands
         bail!("Snix backend doesn't use external nix commands")
     }
+
+    async fn get_available_profiles(&self) -> Result<Vec<String>> {
+        // TODO: Implement profile discovery for Snix backend
+        warn!("Profile discovery is not yet implemented for the Snix backend.");
+        Ok(Vec::new())
+    }
 }

@@ -1,13 +1,15 @@
 use clap::Parser;
-use devenv::{Devenv, DevenvOptions, log};
+use devenv::{cli, config, nix_backend, Devenv, DevenvOptions, log};
 use miette::{IntoDiagnostic, Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
     path::PathBuf,
     process::{Command, ExitCode, Stdio},
+    sync::Arc,
 };
 use tempfile::TempDir;
+use tokio::sync::OnceCell;
 
 const ALL_SYSTEMS: &[&str] = &[
     "x86_64-linux",
@@ -378,13 +380,50 @@ async fn run_tests_in_directory(args: &RunArgs) -> Result<Vec<TestResult>> {
             )
             .wrap_err("Failed to add devenv input")?;
 
+        let global_options = cli::GlobalOptions::default();
+
+        let xdg_dirs = xdg::BaseDirectories::with_prefix("devenv");
+        let cachix_trusted_keys = xdg_dirs
+            .get_data_home()
+            .expect("Failed to get XDG data home")
+            .join("cachix_trusted_keys.json");
+        let paths = nix_backend::DevenvPaths {
+            root: devenv_root.clone(),
+            dotfile: devenv_dotfile.clone(),
+            dot_gc: devenv_dotfile.join("gc"),
+            home_gc: xdg_dirs
+                .get_data_home()
+                .expect("Failed to get XDG data home")
+                .join("gc"),
+            cachix_trusted_keys,
+        };
+
+        let secretspec_resolved = Arc::new(OnceCell::new());
+        let nix: Arc<Box<dyn nix_backend::NixBackend>> =
+            match config.backend {
+                config::NixBackendType::Nix => Arc::new(Box::new(
+                    devenv::nix::Nix::new(
+                        config.clone(),
+                        global_options.clone(),
+                        paths,
+                        secretspec_resolved.clone(),
+                    )
+                    .await?,
+                )),
+                #[cfg(feature = "snix")]
+                config::NixBackendType::Snix => {
+                    unimplemented!("Snix backend not supported in devenv-run-tests")
+                }
+            };
+
         let options = DevenvOptions {
             config,
             devenv_root: Some(devenv_root.clone()),
             devenv_dotfile: Some(devenv_dotfile),
-            global_options: Some(devenv::GlobalOptions::default()),
+            global_options: Some(global_options),
+            profiles: vec![],
         };
-        let devenv = Devenv::new(options).await;
+        let devenv = Devenv::new(options, nix, secretspec_resolved).await;
 
         eprintln!("  Running {dir_name}");
 
