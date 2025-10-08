@@ -110,6 +110,9 @@ pub trait NixBackend: Send + Sync {
     /// Garbage collect the specified paths
     async fn gc(&self, paths: Vec<PathBuf>) -> Result<()>;
 
+    /// Get the list of available profiles defined in devenv.nix
+    async fn get_available_profiles(&self) -> Result<Vec<String>>;
+
     /// Get the backend name (for debugging/logging)
     fn name(&self) -> &'static str;
 

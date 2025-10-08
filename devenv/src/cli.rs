@@ -1,21 +1,37 @@
 use crate::log::LogFormat;
-use clap::{Parser, Subcommand, crate_version};
+use clap::{ArgAction, Parser, Subcommand, crate_version};
 use devenv_tasks::RunMode;
+use miette::Result;
 use std::path::PathBuf;
 use tracing::error;
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(
     name = "devenv",
-    color = clap::ColorChoice::Auto,
-    // for --clean to work with subcommands
+    version = crate_version!(),
+    about = "Fast, Declarative, Reproducible, and Composable Developer Environments",
+    long_about = None,
     subcommand_precedence_over_arg = true,
-    dont_delimit_trailing_values = true,
-    about = format!("https://devenv.sh {}: Fast, Declarative, Reproducible, and Composable Developer Environments", crate_version!())
+    arg_required_else_help = false, // Don't force help when no args
+    disable_help_subcommand = true
 )]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
+
+    #[arg(
+        short = 'P',
+        long = "profile",
+        action = ArgAction::Append,
+        value_name = "PROFILE",
+        global = true,
+        help = "Activate one or more profiles defined in devenv.nix.\n\nExamples:\n  --profile python-3.14\n  --profile backend --profile fast-startup"
+    )]
+    pub profile: Vec<String>,
+
+    // Add explicit help flag to control processing order
+    #[arg(long, short = 'h', action = ArgAction::Help, global = true)]
+    help: Option<bool>,
 
     #[command(flatten)]
     pub global_options: GlobalOptions,
@@ -27,6 +43,25 @@ impl Cli {
         let mut cli = Self::parse();
         cli.global_options.resolve_overrides();
         cli
+    }
+
+    /// Validate profiles against the list of available profiles.
+    pub fn validate_profiles(&self, available_profiles: &[String]) -> Result<()> {
+        if self.profile.is_empty() {
+            return Ok(());
+        }
+
+        for profile_name in &self.profile {
+            if !available_profiles.contains(profile_name) {
+                return Err(miette::miette!(
+                    "Profile '{}' not found in devenv.nix. Available profiles: [{}]",
+                    profile_name,
+                    available_profiles.join(", ")
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -169,15 +204,6 @@ pub struct GlobalOptions {
         long_help = "Override configuration options with typed values.\n\nOPTION must include a type: <attribute>:<type>\nSupported types: string, int, float, bool, path, pkg, pkgs\n\nExamples:\n  --option languages.rust.channel:string beta\n  --option services.postgres.enable:bool true\n  --option languages.python.version:string 3.10\n  --option packages:pkgs \"ncdu git\""
     )]
     pub option: Vec<String>,
-
-    #[arg(
-        short = 'P',
-        long,
-        global = true,
-        help = "Activate one or more profiles defined in devenv.nix",
-        long_help = "Activate one or more profiles defined in devenv.nix.\n\nProfiles allow you to define different configurations that can be merged with your base configuration.\n\nSee https://devenv.sh/profiles for more information.\n\nExamples:\n  --profile python-3.14\n  --profile backend --profile fast-startup"
-    )]
-    pub profile: Vec<String>,
 }
 
 impl Default for GlobalOptions {
@@ -200,7 +226,6 @@ impl Default for GlobalOptions {
             nix_option: vec![],
             override_input: vec![],
             option: vec![],
-            profile: vec![],
         }
     }
 }

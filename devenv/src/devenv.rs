@@ -54,6 +54,7 @@ pub(crate) const DEVENV_FLAKE: &str = ".devenv.flake.nix";
 pub struct DevenvOptions {
     pub config: config::Config,
     pub global_options: Option<cli::GlobalOptions>,
+    pub profiles: Vec<String>,
     pub devenv_root: Option<PathBuf>,
     pub devenv_dotfile: Option<PathBuf>,
 }
@@ -72,40 +73,31 @@ pub struct ProcessOptions<'a> {
 pub struct Devenv {
     pub config: Arc<RwLock<config::Config>>,
     pub global_options: cli::GlobalOptions,
-
+    pub profiles: Vec<String>,
     pub nix: Arc<Box<dyn nix_backend::NixBackend>>,
-
-    // All kinds of paths
     devenv_root: PathBuf,
     devenv_dotfile: PathBuf,
     devenv_dot_gc: PathBuf,
     devenv_home_gc: PathBuf,
     devenv_tmp: String,
     devenv_runtime: PathBuf,
-
-    // Whether assemble has been run.
-    // Assemble creates critical runtime directories and files.
     assembled: Arc<AtomicBool>,
-    // Semaphore to prevent multiple concurrent assembles
     assemble_lock: Arc<Semaphore>,
-
     has_processes: Arc<OnceCell<bool>>,
-
-    // Secretspec resolved data to pass to Nix
     secretspec_resolved: Arc<OnceCell<secretspec::Resolved<HashMap<String, String>>>>,
-
-    // TODO: make private.
-    // Pass as an arg or have a setter.
     pub container_name: Option<String>,
 }
 
 impl Devenv {
-    pub async fn new(options: DevenvOptions) -> Self {
+    pub async fn new(
+        options: DevenvOptions,
+        nix: Arc<Box<dyn nix_backend::NixBackend>>,
+        secretspec_resolved: Arc<OnceCell<secretspec::Resolved<HashMap<String, String>>>>,
+    ) -> Self {
         let xdg_dirs = xdg::BaseDirectories::with_prefix("devenv");
         let devenv_home = xdg_dirs
             .get_data_home()
             .expect("Failed to get home directory");
-        let cachix_trusted_keys = devenv_home.join("cachix_trusted_keys.json");
         let devenv_home_gc = devenv_home.join("gc");
 
         let devenv_root = options
@@ -120,7 +112,6 @@ impl Devenv {
 
         let devenv_tmp = std::env::var("XDG_RUNTIME_DIR")
             .unwrap_or_else(|_| std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string()));
-        // first 7 chars of sha256 hash of devenv_state
         let devenv_state_hash = {
             let mut hasher = sha2::Sha256::new();
             hasher.update(devenv_dotfile.to_string_lossy().as_bytes());
@@ -131,6 +122,7 @@ impl Devenv {
             Path::new(&devenv_tmp).join(format!("devenv-{}", &devenv_state_hash[..7]));
 
         let global_options = options.global_options.unwrap_or_default();
+        let profiles = options.profiles;
 
         xdg_dirs
             .create_data_directory(Path::new("devenv"))
@@ -139,54 +131,17 @@ impl Devenv {
             .await
             .expect("Failed to create DEVENV_HOME_GC directory");
 
-        // Determine backend type from config
-        let backend_type = options.config.backend.clone();
-
-        // Create DevenvPaths struct
-        let paths = nix_backend::DevenvPaths {
-            root: devenv_root.clone(),
-            dotfile: devenv_dotfile.clone(),
-            dot_gc: devenv_dot_gc.clone(),
-            home_gc: devenv_home_gc.clone(),
-            cachix_trusted_keys,
-        };
-
-        // Create shared secretspec_resolved Arc to share between Devenv and Nix
-        let secretspec_resolved = Arc::new(OnceCell::new());
-
-        let nix: Box<dyn nix_backend::NixBackend> = match backend_type {
-            config::NixBackendType::Nix => Box::new(
-                crate::nix::Nix::new(
-                    options.config.clone(),
-                    global_options.clone(),
-                    paths,
-                    secretspec_resolved.clone(),
-                )
-                .await
-                .expect("Failed to initialize Nix backend"),
-            ),
-            #[cfg(feature = "snix")]
-            config::NixBackendType::Snix => Box::new(
-                crate::snix_backend::SnixBackend::new(
-                    options.config.clone(),
-                    global_options.clone(),
-                    paths,
-                )
-                .await
-                .expect("Failed to initialize Snix backend"),
-            ),
-        };
-
         Self {
             config: Arc::new(RwLock::new(options.config)),
             global_options,
+            profiles,
             devenv_root,
             devenv_dotfile,
             devenv_dot_gc,
             devenv_home_gc,
             devenv_tmp,
             devenv_runtime,
-            nix: Arc::new(nix),
+            nix,
             assembled: Arc::new(AtomicBool::new(false)),
             assemble_lock: Arc::new(Semaphore::new(1)),
             has_processes: Arc::new(OnceCell::new()),
@@ -1466,13 +1421,12 @@ impl Devenv {
         // `devenv_runtime` is an absolute string path to the runtime directory for this shell.
         // `devenv_istesting` is a boolean indicating if the shell is being assembled for testing.
         // `container_name` indicates the name of the container being built, copied, or run, if any.
-        let active_profiles = if self.global_options.profile.is_empty() {
+        let active_profiles = if self.profiles.is_empty() {
             "[ ]".to_string()
         } else {
             format!(
                 "[ {} ]",
-                self.global_options
-                    .profile
+                self.profiles
                     .iter()
                     .map(|p| format!("\"{p}\""))
                     .collect::<Vec<_>>()

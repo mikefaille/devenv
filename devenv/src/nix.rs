@@ -1081,6 +1081,18 @@ impl NixBackend for Nix {
         self.gc(paths).await
     }
 
+    async fn get_available_profiles(&self) -> Result<Vec<String>> {
+        let profiles_json = self.eval(&["devenv.config.profiles"]).await?;
+        if profiles_json.trim() == "null" {
+            return Ok(Vec::new());
+        }
+        let profiles: BTreeMap<String, serde_json::Value> =
+            serde_json::from_str(&profiles_json)
+                .into_diagnostic()
+                .wrap_err("Failed to parse profiles from devenv.nix")?;
+        Ok(profiles.keys().cloned().collect())
+    }
+
     fn name(&self) -> &'static str {
         self.name()
     }
